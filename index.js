@@ -19,17 +19,47 @@ import {
   Platform,
 } from 'react-native';
 
+const patchPostMessageFunction = function() {
+  var originalPostMessage = window.postMessage;
+
+  var patchedPostMessage = function(message, targetOrigin, transfer) {
+    originalPostMessage(message, targetOrigin, transfer);
+  };
+
+  patchedPostMessage.toString = function() {
+    return String(Object.hasOwnProperty).replace('hasOwnProperty', 'postMessage');
+  };
+
+  window.postMessage = patchedPostMessage;
+};
+
 const injectedScript = function() {
+  function postSize() {
+    var body = document.body, html = document.documentElement;
+
+    var maxHeight = Math.max( body.scrollHeight, body.offsetHeight,
+                        html.clientHeight, html.scrollHeight, html.offsetHeight );
+
+    window.postMessage(maxHeight);
+  }
+  
   function waitForBridge() {
     if (window.postMessage.length !== 1){
       setTimeout(waitForBridge, 200);
     }
     else {
-      postMessage(
-        Math.max(document.documentElement.clientHeight, document.documentElement.scrollHeight, document.body.clientHeight, document.body.scrollHeight)
-      )
+      postSize();
+
+      //trigger when DOM changes
+      var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
+      var observer = new MutationObserver(postSize);
+        observer.observe(document, {
+        subtree: true,
+        attributes: true
+      });
     }
   }
+  
   waitForBridge();
 };
 
@@ -68,9 +98,9 @@ export default class MyWebView extends Component {
   render () {
     const _w = this.props.width || Dimensions.get('window').width;
     const _h = this.props.autoHeight ? this.state.webViewHeight + 19 : this.props.defaultHeight;
-    const androidScript = 'window.postMessage = String(Object.hasOwnProperty).replace(\'hasOwnProperty\', \'postMessage\');' +
-    '(' + String(injectedScript) + ')();';
-    const iosScript = '(' + String(injectedScript) + ')();' + 'window.postMessage = String(Object.hasOwnProperty).replace(\'hasOwnProperty\', \'postMessage\');';
+    const patchPostMessageJsCode = '(' + String(patchPostMessageFunction) + ')();';
+    const androidScript = patchPostMessageJsCode + '(' + String(injectedScript) + ')();';
+    const iosScript = '(' + String(injectedScript) + ')();' + patchPostMessageJsCode;
     return (
       <WebView
         ref={(ref) => { this.webview = ref; }}
